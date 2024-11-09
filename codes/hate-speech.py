@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+from PIL import Image
+import shutil
 import pickle
 import re
 import gc
@@ -23,32 +25,28 @@ def clean_tweet(twt):
     return twt 
 
 def data_pipeline(df: pd.DataFrame,filename: str):
-    Y = df['labels_str'].apply(lambda x: majority_vote(x)).to_numpy()[None]
-    txts = df['tweet_text'].apply(lambda x: clean_tweet(x)).to_numpy()[None]
-    imgs = []
-    for idx in tqdm(df.index):
-        imgs += [cv.resize(cv.cvtColor(cv.imread(f'datasets/hate-speech/img_resized/{idx}.jpg'),cv.COLOR_BGR2RGB),(500,500))]
-        gc.collect()
-    imgs = np.array(imgs)[None]
+    idxs = df.index.to_numpy()
+    Y = df['labels_str'].apply(lambda x: majority_vote(x)).to_numpy()
+    txts = df['tweet_text'].apply(lambda x: clean_tweet(x)).to_numpy()
     
-    container = (txts, imgs, Y)
-    with open(f'hate-speech-{filename}.pkl','wb') as f:
-        pickle.dump(container,f)
-    del container
-    gc.collect()
+    for i, idx in tqdm(enumerate(idxs)):
+        label = Y[i]
+        txt = txts[i]
+        shutil.move(f'datasets/hate-speech/img_resized/{idx}.jpg',f'datasets/hate-speech/img/{filename}/{str(label)}/{idx}.jpg')
+        with open(f'datasets/hate-speech/txt/{filename}/{str(label)}/{idx}.txt','w') as f:
+            f.write(txt)
+        gc.collect()
 
 def manage_data():
     metadata = load_metadata()
-    with open(r'datasets\hate-speech\splits\train_ids.txt','r') as f:
+    with open(r'datasets/hate-speech/splits/train_ids.txt','r') as f:
         train = metadata.loc[[idx[:-1] for idx in f.readlines()]]
-        
-    with open(r'datasets\hate-speech\splits\val_ids.txt','r') as f:
-        val = metadata.loc[[idx[:-1] for idx in f.readlines()]]
-        
-    with open(r'datasets\hate-speech\splits\test_ids.txt','r') as f:
+    with open(r'datasets/hate-speech/splits/val_ids.txt','r') as f:
+        val = metadata.loc[[idx[:-1] for idx in f.readlines()]]    
+    with open(r'datasets/hate-speech/splits/test_ids.txt','r') as f:
         test = metadata.loc[[idx[:-1] for idx in f.readlines()]]
         
-    processes = [Process(target=data_pipeline,args=(df,tag)) for df,tag in [(train,'train'),(val,'validation'),(test,'test')]]
+    processes = [Process(target=data_pipeline,args=(df,tag)) for df,tag in [(train,'train'),(val,'val'),(test,'test')]]
     for p in processes:
         p.start()
     for p in processes:
