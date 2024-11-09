@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from PIL import Image
+import os
 import shutil
 import pickle
 import re
@@ -32,7 +32,14 @@ def data_pipeline(df: pd.DataFrame,filename: str):
     for i, idx in tqdm(enumerate(idxs)):
         label = Y[i]
         txt = txts[i]
-        shutil.move(f'datasets/hate-speech/img_resized/{idx}.jpg',f'datasets/hate-speech/img/{filename}/{str(label)}/{idx}.jpg')
+        img_source = f'{idx}.jpg'
+        
+        destiny_img = f'datasets/hate-speech/img/{filename}/{str(label)}'
+        destiny_txt = f'datasets/hate-speech/txt/{filename}/{str(label)}'
+        os.makedirs(destiny_img,exist_ok=True)
+        os.makedirs(destiny_txt,exist_ok=True)
+        
+        shutil.move('datasets/hate-speech/img_resized/'+img_source,destiny_img+'/'+img_source)
         with open(f'datasets/hate-speech/txt/{filename}/{str(label)}/{idx}.txt','w') as f:
             f.write(txt)
         gc.collect()
