@@ -5,7 +5,7 @@ import re
 import gc
 import cv2 as cv
 from tqdm import tqdm
-from multiprocessing import Process, Queue
+from multiprocessing import Process
 
 def load_metadata(path='datasets/hate-speech/MMHS150K_GT.json'):
     metadata = pd.read_json(path).T
@@ -22,45 +22,37 @@ def clean_tweet(twt):
     twt = ' '.join(re.findall(r'[a-z]{3,}',twt))
     return twt 
 
-def data_pipeline(df: pd.DataFrame):
+def data_pipeline(df: pd.DataFrame,filename: str):
     Y = df['labels_str'].apply(lambda x: majority_vote(x)).to_numpy()[None]
     txts = df['tweet_text'].apply(lambda x: clean_tweet(x)).to_numpy()[None]
     imgs = []
     for idx in tqdm(df.index):
         imgs += [cv.resize(cv.cvtColor(cv.imread(f'datasets/hate-speech/img_resized/{idx}.jpg'),cv.COLOR_BGR2RGB),(500,500))]
-        gc.collect        
+        gc.collect()
     imgs = np.array(imgs)[None]
-    return txts, imgs, Y
+    
+    container = (txts, imgs, Y)
+    with open(f'hate-speech-{filename}.pkl','wb') as f:
+        pickle.dump(container,f)
+    del container
+    gc.collect()
 
-def get_data(picklefile = None):
-    if picklefile is not None:
-        with open(picklefile,'rb') as p:
-            return pickle.load(f)
-    else:
-        metadata = load_metadata()
-        with open(r'datasets\hate-speech\splits\train_ids.txt','r') as f:
-            train = metadata.loc[[idx[:-1] for idx in f.readlines()]]
-            
-        with open(r'datasets\hate-speech\splits\val_ids.txt','r') as f:
-            val = metadata.loc[[idx[:-1] for idx in f.readlines()]]
-            
-        with open(r'datasets\hate-speech\splits\test_ids.txt','r') as f:
-            test = metadata.loc[[idx[:-1] for idx in f.readlines()]]
-          
-        queue = Queue()
-        processes = [Process(target=data_pipeline,args=(df,)) for df in [train,val,test]]
+def manage_data():
+    metadata = load_metadata()
+    with open(r'datasets\hate-speech\splits\train_ids.txt','r') as f:
+        train = metadata.loc[[idx[:-1] for idx in f.readlines()]]
         
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
-        results = [queue.get() for _ in [train,val,test]]
-            
-        with open('hate-speech.pkl','wb') as f:
-            pickle.dump(results,f)
-            
-        # ((TXT_T, IMG_T, Y_T), (TXT_v, IMG_v, Y_v), (TXT_t, IMG_t, Y_t))
-        return results
+    with open(r'datasets\hate-speech\splits\val_ids.txt','r') as f:
+        val = metadata.loc[[idx[:-1] for idx in f.readlines()]]
+        
+    with open(r'datasets\hate-speech\splits\test_ids.txt','r') as f:
+        test = metadata.loc[[idx[:-1] for idx in f.readlines()]]
+        
+    processes = [Process(target=data_pipeline,args=(df,tag)) for df,tag in [(train,'train'),(val,'validation'),(test,'test')]]
+    for p in processes:
+        p.start()
+    for p in processes:
+        p.join()
     
 if __name__=='__main__':
-    get_data()
+    manage_data()
