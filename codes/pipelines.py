@@ -1,0 +1,200 @@
+import tensorflow as tf
+import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.pipeline import Pipeline
+from sklearn.cluster import KMeans
+from sklearn.feature_extraction.text import TfidfVectorizer
+from gensim.models import Word2Vec
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix,accuracy_score
+import seaborn as sns
+import cv2 as cv
+
+class HOGFeatureExtractor(BaseEstimator, TransformerMixin):
+    def __init__(self, block_size=(16, 16), block_stride=(8, 8), cell_size=(8, 8), nbins=9):
+        self.block_size = block_size
+        self.block_stride = block_stride
+        self.cell_size = cell_size
+        self.nbins = nbins
+        
+        self.hog = cv.HOGDescriptor(
+            _winSize=(64,128),
+            _blockSize=self.block_size,
+            _blockStride=self.block_stride,
+            _cellSize=self.cell_size,
+            _nbins=self.nbins
+        )
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        hog_features = []
+        for img in X:
+            img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+            img = cv.resize(img,(64,128))
+            features = self.hog.compute(img)
+            hog_features.append(features.flatten())
+        
+        return np.array(hog_features)
+
+class BoVWFeatureExtractor(BaseEstimator, TransformerMixin):
+    def __init__(self, n_clusters=100):
+        self.n_clusters = n_clusters
+        self.kmeans = KMeans(n_clusters=self.n_clusters, random_state=42)
+        self.centroids = None
+        self.sift = cv.SIFT_create()
+
+    def fit(self, X, y=None):
+        all_descriptors = []
+        for img in X:
+            img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+            _, descriptors = self.sift.detectAndCompute(img, None)
+            if descriptors is not None:
+                all_descriptors.append(descriptors)
+        all_descriptors = np.vstack(all_descriptors)
+        self.kmeans.fit(all_descriptors)
+        self.centroids = self.kmeans.cluster_centers_
+        return self
+
+    def transform(self, X):
+        histograms = []
+        for img in X:
+            _, descriptors = self.sift.detectAndCompute(img, None)
+            if descriptors is not None:
+                words = self.kmeans.predict(descriptors)
+                histogram, _ = np.histogram(words, bins=np.arange(self.n_clusters + 1))
+            else:
+                histogram = np.zeros(self.n_clusters)
+            histograms.append(histogram)
+        return np.array(histograms)
+
+class Word2VecFeatureExtractor(BaseEstimator, TransformerMixin):
+    def __init__(self, vector_size=100, window=5, min_count=1, sg=0):
+        self.vector_size = vector_size
+        self.window = window
+        self.min_count = min_count
+        self.sg = sg
+        self.model = None
+
+    def fit(self, X, y=None):
+        tokenized_sentences = [sentence.split() for sentence in X]
+        self.model = Word2Vec(sentences=tokenized_sentences, vector_size=self.vector_size, window=self.window, min_count=self.min_count, sg=self.sg)
+        return self
+
+    def transform(self, X):
+        tokenized_sentences = [sentence.split() for sentence in X]
+        feature_vectors = []
+        for sentence in tokenized_sentences:
+            vectors = [self.model.wv[word] for word in sentence if word in self.model.wv]
+            if vectors:
+                feature_vectors.append(np.mean(vectors, axis=0))
+            else:
+                feature_vectors.append(np.zeros(self.vector_size))
+        return np.array(feature_vectors)
+    
+TXT_PIPELINES = [
+    Pipeline([('tf',TfidfVectorizer()),('knn',KNeighborsClassifier())]),
+    Pipeline([('tf',TfidfVectorizer()),('rf',RandomForestClassifier())]),
+    Pipeline([('w2v',Word2VecFeatureExtractor()),('knn',KNeighborsClassifier())]),
+    Pipeline([('w2v',Word2VecFeatureExtractor()),('rf',RandomForestClassifier())])
+]
+
+IMG_PIPELINES = [
+    Pipeline([('hog',HOGFeatureExtractor()),('knn',KNeighborsClassifier())]),
+    Pipeline([('hog',HOGFeatureExtractor()),('rf',RandomForestClassifier())]),
+    Pipeline([('bowv',BoVWFeatureExtractor()),('knn',KNeighborsClassifier())]),
+    Pipeline([('bowv',BoVWFeatureExtractor()),('rf',RandomForestClassifier())])
+]
+
+def binarize(images,labels):
+    binlabels = tf.where(labels==0,0,1)
+    return images, binlabels
+
+def parse_args(yaml):
+    import yaml
+    with open('config.yaml','r') as f:
+        args = yaml.safe_load(f)
+    parsed_args = {}
+
+    def onelevel_parse(rcs):
+        parsed = {}
+        for mainkey,subdicts in rcs.items():
+            openner = f'{mainkey}__'
+            for key, values in subdicts.items():
+                parsed.update({openner+key:values})
+        return parsed    
+            
+    parsed_args.update(args['dset'])
+    parsed_args.update(onelevel_parse(args['ml']['img']))
+    parsed_args.update(onelevel_parse(args['ml']['txt']))
+    parsed_args.update(onelevel_parse(args['ml']['models']))
+    return parsed_args
+
+class ML:
+    def __init__(self,obj='img',yaml_path='config.yaml'):
+        self.args = parse_args(yaml_path)
+        self.binary_labels = self.args['binary_labels']
+        path = 'datasets/hate-speech/'
+        
+        if obj=='img':
+            self.train = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(500,500))
+            self.valid = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/val',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(500,500))
+            self.test  = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/test',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(500,500))
+            self.pipelines = IMG_PIPELINES
+            
+        elif obj=='txt':
+            self.train = tf.keras.utils.text_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',batch_size=None)
+            self.valid = tf.keras.utils.text_dataset_from_directory(path + f'{obj}/val',labels='inferred',label_mode='int',batch_size=None)
+            self.test  = tf.keras.utils.text_dataset_from_directory(path + f'{obj}/test',labels='inferred',label_mode='int',batch_size=None)
+            self.pipelines = TXT_PIPELINES
+            
+        if self.binary_labels:
+            self.train = self.train.map(binarize)
+            self.valid = self.valid.map(binarize)
+            self.test = self.test.map(binarize)
+            
+    def training(self):
+        from sklearn.model_selection import RandomizedSearchCV
+        
+        self.best_models = []
+        for pipe in self.pipelines:
+            tmp_dict = {}
+            for key, values in self.args.items():
+                if key in pipe.get_params().keys():
+                    tmp_dict.update({key:values})
+
+            rs = RandomizedSearchCV(
+                pipe,
+                param_distributions=tmp_dict,
+                n_iter=200,
+                n_jobs=-1,
+                verbose=0,
+                cv=10,
+                random_state=42
+            )
+            self.best_models.append(rs.best_estimator_)
+            
+    def test_accuracies(self):
+        fig, axes = plt.subplots(2,2,figsize=(12,10))
+        axes = axes.ravel()
+        accs = []
+        
+        for i, model in enumerate(self.best_models):
+            X_test, y_test = zip(*[(x, y) for x, y in self.test])
+            X_test = np.array(X_test)
+            y_test = np.array(y_test)
+            y_pred = model.predict(X_test)
+            accs.append(accuracy_score(y_test,y_pred))
+            cm = confusion_matrix(y_test,y_pred)
+            
+            sns.heatmap(cm,annot=True,fmt='d',ax=axes[i])
+            axes[i].set_title(f'Model {i + 1} Confusion Matrix\nAccuracy: {accs[i]:.2f}')
+            axes[i].set_xlabel('Predicted')
+            axes[i].set_ylabel('True')
+            
+        plt.tight_layout()
+        plt.show()
+                
