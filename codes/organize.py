@@ -41,7 +41,7 @@ def data_pipeline(df: pd.DataFrame,filename: str):
             f.write(txt)
         gc.collect()
 
-def manage_data():
+def manage_hate_data():
     metadata = load_metadata()
     with open(r'datasets/hate-speech/splits/train_ids.txt','r') as f:
         train = metadata.loc[[idx[:-1] for idx in f.readlines()]]
@@ -55,6 +55,42 @@ def manage_data():
         p.start()
     for p in processes:
         p.join()
+
+def manage_transcription():
+    from miditok.tokenizations import MIDILike
+    from miditok import TokenizerConfig
+    tiktok = MIDILike(TokenizerConfig(use_time_signatures=True,use_pitchdrum_tokens=False,use_rests=True,use_tempos=True))
     
+    wavs = []
+    for root, _, files in os.walk('codes/music-transcription/MTD/data_AUDIO'):
+        for file in files:
+            wavs.append(os.path.join(root,file))
+            
+    midis = []
+    for root, _, files in os.walk('codes/music-transcription/MTD/data_EDM-alig_MID'):
+        for file in files:
+            midis.append(os.path.join(root,file))
+            
+    for i in tqdm(range(len(wavs))):
+        wav = wavs[i]
+        midi = midis[i]
+        tks = tiktok(midi)
+        
+        txt = ' '.join(['BOS_None']+tks[0].tokens+['EOS_None'])
+        file = wav.split('\\')[-1].split('.')[0]
+        
+        with open(f"codes/music-transcription/midi-like/{file}.txt",'w') as f:
+            f.write(txt)
+        
+        shutil.move(
+            wav,
+            f"codes/music-transcription/wav/{file + '.wav'}"
+        )
+        shutil.move(
+            midi,
+            f"codes/music-transcription/midi/{file + '.mid'}"
+        )
+        
 if __name__=='__main__':
-    manage_data()
+    manage_hate_data()
+    manage_transcription()

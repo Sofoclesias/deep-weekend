@@ -1,6 +1,7 @@
 
 dset:
-  binary_labels: false
+  path: hate-speech/
+  binary_labels: true
 
 ml:
   img:

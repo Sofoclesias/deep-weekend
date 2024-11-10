@@ -133,11 +133,21 @@ def parse_args(yaml):
     parsed_args.update(onelevel_parse(args['ml']['models']))
     return parsed_args
 
+def sklearn_dset(dataset):
+    x, y = zip(*[(x_batch, y_batch) for x_batch, y_batch in dataset.as_numpy_iterator()])
+    x = np.array(x)
+    y = np.array(y)
+    return x, y
+
 class ML:
-    def __init__(self,obj='img',yaml_path='config.yaml'):
+    def __init__(self,obj='img',dset_path=None,yaml_path='config.yaml'):
+        import os
         self.args = parse_args(yaml_path)
         self.binary_labels = self.args['binary_labels']
-        path = 'datasets/hate-speech/'
+        if dset_path is not None:
+            path = dset_path
+        else:
+            path = self.args['path']
         
         if obj=='img':
             self.train = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(500,500))
@@ -156,26 +166,38 @@ class ML:
             self.valid = self.valid.map(binarize)
             self.test = self.test.map(binarize)
             
-    def training(self):
+    def training(self,log_path = 'log.txt'):
         from sklearn.model_selection import RandomizedSearchCV
+        
+        x_train, y_train = sklearn_dset(self.train)
         
         self.best_models = []
         for pipe in self.pipelines:
+            print(f'Training {list(pipe.named_steps.keys())}')
             tmp_dict = {}
             for key, values in self.args.items():
                 if key in pipe.get_params().keys():
                     tmp_dict.update({key:values})
+            print(tmp_dict)
 
             rs = RandomizedSearchCV(
                 pipe,
                 param_distributions=tmp_dict,
-                n_iter=200,
+                n_iter=150,
                 n_jobs=-1,
-                verbose=0,
-                cv=10,
+                verbose=3,
+                cv=5,
                 random_state=42
             )
+            rs.fit(x_train,y_train)
             self.best_models.append(rs.best_estimator_)
+            
+            with open(log_path,'a') as f:
+                send = f"""
+Model {list(pipe.named_steps.keys())} - {rs.best_score_}
+{rs.best_params_}
+                """
+                f.write(send)
             
     def test_accuracies(self):
         fig, axes = plt.subplots(2,2,figsize=(12,10))
@@ -183,9 +205,7 @@ class ML:
         accs = []
         
         for i, model in enumerate(self.best_models):
-            X_test, y_test = zip(*[(x, y) for x, y in self.test])
-            X_test = np.array(X_test)
-            y_test = np.array(y_test)
+            X_test, y_test = sklearn_dset(self.test)
             y_pred = model.predict(X_test)
             accs.append(accuracy_score(y_test,y_pred))
             cm = confusion_matrix(y_test,y_pred)
