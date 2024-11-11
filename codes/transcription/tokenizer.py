@@ -58,8 +58,8 @@ class vocabulary:
                 0,
                 self.config.beat_res[max(self.config.beat_res)],
             )
-        ]  # the last one
-        del durations[0]  # removes duration of 0
+        ] 
+        del durations[0] 
         return durations
     
     def __create_rests(self):
@@ -76,8 +76,8 @@ class vocabulary:
                 0,
                 self.config.beat_res_rest[max(self.config.beat_res_rest)],
             )
-        ]  # the last one
-        del rests[0]  # removes rests of 0
+        ]  
+        del rests[0]  
         return rests
     
     def __create_tempos(self):

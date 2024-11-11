@@ -3,14 +3,15 @@ import librosa
 import numpy as np
 from tensorflow.keras.preprocessing.text import Tokenizer
 import os
+from .tokenizer import vocabulary
+from .classes import TokenizerConfig
+import matplotlib.pyplot as plt
 
 SAMPLE_RATE = 16000
 N_FFT = 1024  
 HOP_LENGTH = N_FFT
 BATCH_SIZE = 32
 
-from codes.transcription.tokenizer import vocabulary
-from codes.transcription.classes import TokenizerConfig
 tokens = vocabulary(TokenizerConfig()).from_midi_tags()
 
 tokenizer = Tokenizer(filters='', lower=False)  
@@ -51,7 +52,10 @@ def generator(file_paths, midi_paths):
     for file_path, midi_string in zip(file_paths, midi_paths):
         stft_db, waveform_segments = load_audio(file_path)
         tokenized_midi = tokenize_midi(midi_string)
-        yield (stft_db, waveform_segments, tokenized_midi)
+        
+        decoder_input = tokenized_midi[:-1] 
+        target_output = tokenized_midi[1:]  
+        yield ({'stft_input': stft_db, 'waveform_input': waveform_segments, 'decoder_input': decoder_input}, target_output)
 
 class datasets:
     def __init__(self,root_file, root_midi, batch_size=BATCH_SIZE):
@@ -82,17 +86,44 @@ class datasets:
             generator,
             args=(file_paths,midi_paths),
             output_signature=(
-                tf.TensorSpec(shape=(None, 1 + N_FFT // 2, 1), dtype=tf.float32),  # STFT shape
-                tf.TensorSpec(shape=(None, N_FFT, 1), dtype=tf.float32),           # Waveform segments shape
-                tf.TensorSpec(shape=(None,), dtype=tf.int32)                       # Tokenized MIDI shape
+                {
+                    'stft_input': tf.TensorSpec(shape=(None, 1 + N_FFT // 2,1), dtype=tf.float32),
+                    'waveform_input': tf.TensorSpec(shape=(None, N_FFT,1), dtype=tf.float32),
+                    'decoder_input': tf.TensorSpec(shape=(None,), dtype=tf.int32),
+                },
+                tf.TensorSpec(shape=(None,), dtype=tf.int32)
             )
         )
         dataset = dataset.padded_batch(self.batch_size, padded_shapes=(
-            [None, 1 + N_FFT // 2, 1],  # STFT
-            [None, N_FFT, 1],           # Waveform segments
-            [None]                      # Tokenized MIDI
-        ))
+            {
+            'stft_input': [None, 1 + N_FFT // 2,1],
+            'waveform_input': [None, N_FFT,1],
+            'decoder_input': [None],
+        },
+        [None]
+    ))
         return dataset    
     
     def retrieve(self):
         return self.train, self.valid, self.test
+    
+def plot_training(history):
+    plt.figure(figsize=(14, 5))
+
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['loss'], label='Train Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title('Model Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['accuracy'], label='Train Accuracy')
+    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+    plt.title('Model Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.legend()
+
+    plt.show()

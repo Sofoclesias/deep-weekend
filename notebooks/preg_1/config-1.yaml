@@ -1,7 +1,7 @@
 
 dset:
   path: /content/drive/MyDrive/DL/PREG1/hate-speech/
-  binary_labels: true
+  binary_labels: false
 
 ml:
   img:

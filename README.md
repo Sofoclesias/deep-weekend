@@ -1,6 +1,6 @@
 # deep-weekend
 
-Evaluación de fin de semana para el curso de Deep Learning.
+Evaluación de fin de semana para el curso de Deep Learning. Los notebooks de entrenamiento están en la carpeta notebooks/, mientras que todos los códigos serializados para el trabajo están en codes/.
 
 # Pregunta 1
 

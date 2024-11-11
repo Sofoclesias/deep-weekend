@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix,accuracy_score
 import seaborn as sns
 import cv2 as cv
+from tensorflow.keras.applications import VGG16, InceptionV3, ResNet50
 
 class HOGFeatureExtractor(BaseEstimator, TransformerMixin):
     def __init__(self, block_size=(16, 16), block_stride=(8, 8), cell_size=(8, 8), nbins=9):
@@ -113,9 +114,9 @@ def binarize(images,labels):
     binlabels = tf.where(labels==0,0,1)
     return images, binlabels
 
-def parse_args(yaml):
+def parse_args(yaml_fi):
     import yaml
-    with open('config.yaml','r') as f:
+    with open(yaml_fi,'r') as f:
         args = yaml.safe_load(f)
     parsed_args = {}
 
@@ -150,9 +151,9 @@ class ML:
             path = self.args['path']
         
         if obj=='img':
-            self.train = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(500,500))
-            self.valid = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/val',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(500,500))
-            self.test  = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/test',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(500,500))
+            self.train = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(224,224))
+            self.valid = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/val',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(224,224))
+            self.test  = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/test',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(224,224))
             self.pipelines = IMG_PIPELINES
             
         elif obj=='txt':
@@ -183,10 +184,10 @@ class ML:
             rs = RandomizedSearchCV(
                 pipe,
                 param_distributions=tmp_dict,
-                n_iter=150,
+                n_iter=50,
                 n_jobs=-1,
                 verbose=3,
-                cv=5,
+                cv=3,
                 random_state=42
             )
             rs.fit(x_train,y_train)
@@ -217,4 +218,3 @@ Model {list(pipe.named_steps.keys())} - {rs.best_score_}
             
         plt.tight_layout()
         plt.show()
-                
