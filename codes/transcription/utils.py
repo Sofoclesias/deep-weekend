@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 SAMPLE_RATE = 16000
 N_FFT = 1024  
 HOP_LENGTH = N_FFT
-BATCH_SIZE = 32
+BATCH_SIZE = 8
 
 tokens = vocabulary(TokenizerConfig()).from_midi_tags()
 
@@ -70,15 +70,15 @@ class datasets:
                 self.midi_paths.append(os.path.join(root,file))
                 
         div = round(len(self.file_paths)*0.8)
-                
+        
         self.train = self.data_generator(
             self.file_paths[:div],self.midi_paths[:div]
         )
         self.valid = self.data_generator(
-            self.file_paths[div:(len(self.file_paths)-div)//2],self.midi_paths[div:(len(self.file_paths)-div)//2]
+            self.file_paths[div:((len(self.file_paths))-div)//2+div],self.midi_paths[div:((len(self.file_paths))-div)//2+div]
         )
         self.test = self.data_generator(
-            self.file_paths[(len(self.file_paths)-div)//2:],self.midi_paths[(len(self.file_paths)-div)//2:]
+            self.file_paths[((len(self.file_paths))-div)//2+div:],self.midi_paths[((len(self.file_paths))-div)//2+div:]
         )
              
     def data_generator(self,file_paths,midi_paths):

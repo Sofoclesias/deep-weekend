@@ -151,9 +151,9 @@ class ML:
             path = self.args['path']
         
         if obj=='img':
-            self.train = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(224,224))
-            self.valid = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/val',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(224,224))
-            self.test  = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/test',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(224,224))
+            self.train = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(128,128))
+            self.valid = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/val',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(128,128))
+            self.test  = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/test',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(128,128))
             self.pipelines = IMG_PIPELINES
             
         elif obj=='txt':
