@@ -42,13 +42,12 @@ class EncoderDecoderModel(Model):
         self.state_reducer_h = layers.Dense(encoder_units)
         self.state_reducer_c = layers.Dense(encoder_units)
         
-        self.decoder_input = Input(shape=(max_seq_length,), name='decoder_input')
+        self.decoder_input = Input(shape=(300,self.vocab_size), name='decoder_input')
         self.decoder_embedding = layers.Embedding(input_dim=self.vocab_size, output_dim=decoder_units)
         self.decoder_lstm = layers.LSTM(decoder_units, return_sequences=True, return_state=True)
         
         self.decoder_dense = layers.Dense(self.vocab_size, activation='softmax')
 
-    @tf.function
     def call(self, inputs, training=True):
         stft_input, waveform_input, decoder_input = inputs['stft_input'], inputs['waveform_input'], inputs['decoder_input']
         
@@ -75,29 +74,43 @@ class EncoderDecoderModel(Model):
         encoder_state_c = self.state_reducer_c(encoder_state_c)
         
         initial_state = [encoder_state_h, encoder_state_c]
-        seq_length = tf.shape(decoder_input)[1]
-
-        predictions = tf.TensorArray(dtype=tf.float32, size=seq_length)
-
-        current_input = decoder_input[:, 0]  
-
-        for t in tf.range(1, seq_length):
-            embedded_input = self.decoder_embedding(tf.expand_dims(current_input, axis=1))
+        tensor_array = tf.TensorArray(dtype=tf.float32, size=self.max_seq_length)
+        current_input = decoder_input[:, 0, :]
+        continue_condition = tf.constant(True)
+        
+        for t in tf.range(1, self.max_seq_length):
+            tf.autograph.experimental.set_loop_options(
+                shape_invariants=[(current_input, tf.TensorShape([None, self.vocab_size-1]))]
+            )
+            
+            embedded_input = self.decoder_embedding(current_input)
             decoder_output, state_h, state_c = self.decoder_lstm(embedded_input, initial_state=initial_state)
             output_token = self.decoder_dense(decoder_output)
 
-            predictions = predictions.write(t - 1, output_token)
+            tensor_array = tensor_array.write(t - 1, output_token)
+            predicted_id = tf.argmax(output_token, axis=-1)
 
-            if training: 
-                current_input = decoder_input[:, t]
-            else:  
-                current_input = tf.cast(tf.argmax(output_token, axis=-1)[:, 0], dtype=tf.int32)
+            if not training:
+                continue_condition = tf.logical_not(tf.reduce_all(tf.equal(predicted_id, self.eos_token_id)))
 
+            current_input = tf.cond(
+                tf.convert_to_tensor(training),
+                lambda: tf.cond(
+                    t < tf.shape(decoder_input)[1],
+                    lambda: decoder_input[:, t, :],
+                    lambda: current_input
+                ),
+                lambda: tf.one_hot(predicted_id[:, 0], depth=self.vocab_size)
+            )
+            
+            if not continue_condition:
+                break
+            
             initial_state = [state_h, state_c]
             gc.collect()
 
-        predictions = predictions.stack()
-        predictions = tf.squeeze(predictions, axis=-2)
+        predictions = tensor_array.stack()
+        predictions = tf.squeeze(predictions, axis=1)
         predictions = tf.transpose(predictions, [1, 0, 2])
 
         gc.collect()
@@ -106,7 +119,7 @@ class EncoderDecoderModel(Model):
     def build_graph(self):
         stft = Input(shape=(None, 1 + self.n_fft // 2, 1), name='stft_input')
         waveform = Input(shape=(None, self.n_fft), name='waveform_input')
-        decoder = Input(shape=(None), name='decoder_input')
+        decoder = Input(shape=(None,self.vocab_size), name='decoder_input')
         
         dummy = {
             'stft_input': stft,

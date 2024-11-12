@@ -3,8 +3,10 @@ import os
 import shutil
 import re
 import gc
+import numpy as np
 from tqdm import tqdm
 from multiprocessing import Process
+import pretty_midi
 
 def load_metadata(path='datasets/hate-speech/MMHS150K_GT.json'):
     metadata = pd.read_json(path).T
@@ -57,10 +59,7 @@ def manage_hate_data():
         p.join()
 
 def manage_transcription():
-    from miditok.tokenizations import MIDILike
-    from miditok import TokenizerConfig
-    tiktok = MIDILike(TokenizerConfig(use_time_signatures=True,use_pitchdrum_tokens=False,use_rests=True,use_tempos=True))
-    
+    timestamps = np.linspace(0,12,120).round(1)  
     wavs = []
     for root, _, files in os.walk('codes/music-transcription/MTD/data_AUDIO'):
         for file in files:
@@ -74,9 +73,12 @@ def manage_transcription():
     for i in tqdm(range(len(wavs))):
         wav = wavs[i]
         midi = midis[i]
-        tks = tiktok(midi)
-        
-        txt = ' '.join(['BOS_None']+tks[0].tokens+['EOS_None'])
+        tokens = []
+        for note in pretty_midi.PrettyMIDI(midi).instruments[0].notes:
+            start = timestamps[np.abs(timestamps - note.start).argmin()]
+            end = timestamps[np.abs(timestamps - note.end).argmin()]
+            tokens.append( f"Time_{start:.1f} NoteOn_{note.pitch} Time_{end:.1f} NoteOff_{note.pitch}")
+        txt = ' '.join(['BOS']+tokens+['EOS'])
         file = wav.split('\\')[-1].split('.')[0]
         
         with open(f"codes/music-transcription/midi-like/{file}.txt",'w') as f:

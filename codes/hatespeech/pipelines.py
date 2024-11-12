@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix,accuracy_score
 import seaborn as sns
 import cv2 as cv
+import gc
+import re
 from tensorflow.keras.applications import VGG16, InceptionV3, ResNet50
 
 class HOGFeatureExtractor(BaseEstimator, TransformerMixin):
@@ -86,14 +88,16 @@ class Word2VecFeatureExtractor(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
-        tokenized_sentences = [sentence.split() for sentence in X]
         feature_vectors = []
-        for sentence in tokenized_sentences:
-            vectors = [self.model.wv[word] for word in sentence if word in self.model.wv]
-            if vectors:
+        for text in X:
+            vectors = [self.model.wv[word] for word in text if word in self.model.wv]
+            
+            if len(vectors) > 0 and all(len(vec) == len(vectors[0]) for vec in vectors):
                 feature_vectors.append(np.mean(vectors, axis=0))
             else:
-                feature_vectors.append(np.zeros(self.vector_size))
+                zero_vector = np.zeros(self.model.vector_size)
+            feature_vectors.append(zero_vector)
+        
         return np.array(feature_vectors)
     
 TXT_PIPELINES = [
@@ -134,8 +138,15 @@ def parse_args(yaml_fi):
     parsed_args.update(onelevel_parse(args['ml']['models']))
     return parsed_args
 
-def sklearn_dset(dataset):
-    x, y = zip(*[(x_batch, y_batch) for x_batch, y_batch in dataset.as_numpy_iterator()])
+def sklearn_dset(dataset,obj):
+    batches = []
+    for x, y in dataset.as_numpy_iterator():
+        if obj == 'txt':
+            x = re.sub("b'",'',str(x))
+        batches.append((x,y))
+        gc.collect()
+    
+    x, y = zip(*batches)
     x = np.array(x)
     y = np.array(y)
     return x, y
@@ -144,6 +155,7 @@ class ML:
     def __init__(self,obj='img',dset_path=None,yaml_path='config.yaml'):
         import os
         self.args = parse_args(yaml_path)
+        self.obj = obj
         self.binary_labels = self.args['binary_labels']
         if dset_path is not None:
             path = dset_path
@@ -151,9 +163,9 @@ class ML:
             path = self.args['path']
         
         if obj=='img':
-            self.train = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(128,128))
-            self.valid = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/val',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(128,128))
-            self.test  = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/test',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None,image_size=(128,128))
+            self.train = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None)#,image_size=(128,128))
+            self.valid = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/val',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None)#,image_size=(128,128))
+            self.test  = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/test',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None) # ,image_size=(128,128))
             self.pipelines = IMG_PIPELINES
             
         elif obj=='txt':
@@ -170,7 +182,7 @@ class ML:
     def training(self,log_path = 'log.txt'):
         from sklearn.model_selection import RandomizedSearchCV
         
-        x_train, y_train = sklearn_dset(self.train)
+        x_train, y_train = sklearn_dset(self.train,self.obj)
         
         self.best_models = []
         for pipe in self.pipelines:
@@ -185,7 +197,6 @@ class ML:
                 pipe,
                 param_distributions=tmp_dict,
                 n_iter=50,
-                n_jobs=-1,
                 verbose=3,
                 cv=3,
                 random_state=42
@@ -206,7 +217,7 @@ Model {list(pipe.named_steps.keys())} - {rs.best_score_}
         accs = []
         
         for i, model in enumerate(self.best_models):
-            X_test, y_test = sklearn_dset(self.test)
+            X_test, y_test = sklearn_dset(self.test,self.obj)
             y_pred = model.predict(X_test)
             accs.append(accuracy_score(y_test,y_pred))
             cm = confusion_matrix(y_test,y_pred)
