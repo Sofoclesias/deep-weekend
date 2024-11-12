@@ -8,7 +8,7 @@ import os
 import matplotlib.pyplot as plt
 from matplotlib import patches
 
-SAMPLE_RATE = 44100
+SAMPLE_RATE = 18000
 N_FFT = 1024  
 HOP_LENGTH = N_FFT
 BATCH_SIZE = 8
