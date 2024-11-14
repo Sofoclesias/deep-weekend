@@ -1,6 +1,6 @@
 
 dset:
-  path: hate-speech/
+  path: /content/drive/MyDrive/DL/PREG1/hate-speech/
   binary_labels: true
 
 ml:
@@ -11,24 +11,24 @@ ml:
       cell_size: [[4, 4], [8, 8], [16, 16]]
       nbins: [6, 9, 12, 18] 
     bovw:
-      k: [50, 100, 200, 500]  
+      k: [50, 100, 200]  
   txt:
     tf:
-      max_features: [500, 1000, 5000, 10000]
-      max_df: [0.75, 0.85, 1.0] 
+      max_features: [20,50,100,200]
+      max_df: [0.75, 0.85] 
       use_idf: [True, False] 
     w2v:
-      vector_size: [10,20,50] 
-      window: [3, 5, 7] 
-      min_count: [1, 5, 10] 
+      vector_size: [20, 50, 100, 200]                          
+      window: [3, 5]                                
+      min_count: [5, 10]                             
       sg: [0, 1]
   models:
     knn:
       n_neighbors: [3, 5, 10, 15, 20]
     rf:
-      n_estimators: [50, 100, 200, 500]  
+      n_estimators: [50, 100, 200]  
       criterion: ["gini", "entropy"]
-      max_depth: [None, 10, 20, 30, 50, 100]
+      max_depth: [null, 10, 20, 30, 50, 100]
       min_samples_split: [2, 5, 10] 
       min_samples_leaf: [1, 2, 5, 10] 
-      max_features: ["auto", "sqrt", "log2"] 
+      max_features: ["sqrt", "log2"] 

@@ -36,24 +36,24 @@ class HOGFeatureExtractor(BaseEstimator, TransformerMixin):
     def transform(self, X):
         hog_features = []
         for img in X:
-            img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
             img = cv.resize(img,(64,128))
+            img = img.astype(np.uint8)
             features = self.hog.compute(img)
             hog_features.append(features.flatten())
         
         return np.array(hog_features)
 
 class BoVWFeatureExtractor(BaseEstimator, TransformerMixin):
-    def __init__(self, n_clusters=100):
-        self.n_clusters = n_clusters
-        self.kmeans = KMeans(n_clusters=self.n_clusters, random_state=42)
+    def __init__(self, k=100):
+        self.k = k
+        self.kmeans = KMeans(n_clusters=self.k, random_state=42)
         self.centroids = None
         self.sift = cv.SIFT_create()
 
     def fit(self, X, y=None):
         all_descriptors = []
         for img in X:
-            img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+            img = img.astype(np.uint8)
             _, descriptors = self.sift.detectAndCompute(img, None)
             if descriptors is not None:
                 all_descriptors.append(descriptors)
@@ -65,12 +65,13 @@ class BoVWFeatureExtractor(BaseEstimator, TransformerMixin):
     def transform(self, X):
         histograms = []
         for img in X:
+            img = img.astype(np.uint8)
             _, descriptors = self.sift.detectAndCompute(img, None)
             if descriptors is not None:
                 words = self.kmeans.predict(descriptors)
-                histogram, _ = np.histogram(words, bins=np.arange(self.n_clusters + 1))
+                histogram, _ = np.histogram(words, bins=np.arange(self.k + 1))
             else:
-                histogram = np.zeros(self.n_clusters)
+                histogram = np.zeros(self.k)
             histograms.append(histogram)
         return np.array(histograms)
 
@@ -96,7 +97,7 @@ class Word2VecFeatureExtractor(BaseEstimator, TransformerMixin):
                 feature_vectors.append(np.mean(vectors, axis=0))
             else:
                 zero_vector = np.zeros(self.model.vector_size)
-            feature_vectors.append(zero_vector)
+                feature_vectors.append(zero_vector)
         
         return np.array(feature_vectors)
     
@@ -110,13 +111,25 @@ TXT_PIPELINES = [
 IMG_PIPELINES = [
     Pipeline([('hog',HOGFeatureExtractor()),('knn',KNeighborsClassifier())]),
     Pipeline([('hog',HOGFeatureExtractor()),('rf',RandomForestClassifier())]),
-    Pipeline([('bowv',BoVWFeatureExtractor()),('knn',KNeighborsClassifier())]),
-    Pipeline([('bowv',BoVWFeatureExtractor()),('rf',RandomForestClassifier())])
+    Pipeline([('bovw',BoVWFeatureExtractor()),('knn',KNeighborsClassifier())]),
+    Pipeline([('bovw',BoVWFeatureExtractor()),('rf',RandomForestClassifier())])
 ]
 
 def binarize(images,labels):
     binlabels = tf.where(labels==0,0,1)
     return images, binlabels
+
+def vectorize(texts: tf.Tensor,labels):
+    model = Word2VecFeatureExtractor(300,5,5,0)
+    tokenized_sentences = tf.map_fn(
+        lambda sentence: tf.strings.split(sentence), 
+        texts, 
+        fn_output_signature=tf.RaggedTensorSpec(shape=[None], dtype=tf.string)
+    )
+    model = Word2Vec(sentences=tokenized_sentences, vector_size=300, window=5, min_count=5, sg=0)
+        
+    texts = tf.py_function(func=model.fit_transform, inp=[texts], Tout=tf.float32)
+    return texts, labels
 
 def parse_args(yaml_fi):
     import yaml
@@ -163,9 +176,9 @@ class ML:
             path = self.args['path']
         
         if obj=='img':
-            self.train = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None)#,image_size=(128,128))
-            self.valid = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/val',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None)#,image_size=(128,128))
-            self.test  = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/test',labels='inferred',label_mode='int',color_mode='rgb',batch_size=None) # ,image_size=(128,128))
+            self.train = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/train',labels='inferred',label_mode='int',color_mode='grayscale',batch_size=None,image_size=(128,128))
+            self.valid = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/val',labels='inferred',label_mode='int',color_mode='grayscale',batch_size=None,image_size=(128,128))
+            self.test  = tf.keras.utils.image_dataset_from_directory(path + f'{obj}/test',labels='inferred',label_mode='int',color_mode='grayscale',batch_size=None,image_size=(128,128))
             self.pipelines = IMG_PIPELINES
             
         elif obj=='txt':
